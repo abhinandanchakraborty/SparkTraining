@@ -1,5 +1,6 @@
 package org.sparktraining.rdd;
 
+import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -14,10 +15,16 @@ import org.apache.spark.api.java.function.PairFunction;
 
 import scala.Tuple2;
 
-public class SparkRDD {
+public class SparkRDD implements Serializable{
+	
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
 
-	private JavaSparkContext sc;
-
+	
+	private static SparkConf conf = new SparkConf().setMaster("local[2]").setAppName("wordCount");
+	private static JavaSparkContext sc = new JavaSparkContext(conf);
 
 
 	public void hdfsWordCountSave(String hdfsInputPath, String hdfsOutputPath) {
@@ -51,16 +58,11 @@ public class SparkRDD {
 	
 	
 	public void hdfsWordCountPrint(String hdfsInputPath) {
-		SparkConf conf = new SparkConf().setMaster("local[2]").setAppName("wordCount");
-		sc = new JavaSparkContext(conf);
 
 		// Load our input data.
 		JavaRDD<String> input = sc.textFile(hdfsInputPath);
 		// Split up into words.
 		JavaRDD<String> words = input.flatMap(new FlatMapFunction<String, String>() {
-			
-			private static final long serialVersionUID = 1L;
-
 			public Iterator<String> call(String x) {
 				return Arrays.asList(x.split(" ")).iterator();
 			}
@@ -68,9 +70,6 @@ public class SparkRDD {
 
 		// Transform into word and count.
 		JavaPairRDD<String, Integer> counts = words.mapToPair(new PairFunction<String, String, Integer>() {
-			
-			private static final long serialVersionUID = 1L;
-
 			public Tuple2<String, Integer> call(String x) {
 				return new Tuple2(x, 1);
 			}
@@ -89,5 +88,10 @@ public class SparkRDD {
 		for (Tuple2<String,Integer> tuple : collectWordCount) {
 			System.out.println(String.format("Word [%s] count [%d].", tuple._1(), tuple._2()));
 		}
+	}
+	
+	public static void main(String args[]){
+		SparkRDD rdd = new SparkRDD();
+		rdd.hdfsWordCountPrint("/home/abhinandan/Desktop/source.csv");
 	}
 }

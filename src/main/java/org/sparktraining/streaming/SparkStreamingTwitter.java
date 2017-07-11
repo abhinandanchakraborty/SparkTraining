@@ -24,47 +24,69 @@ import twitter4j.auth.Authorization;
 import twitter4j.auth.AuthorizationFactory;
 import twitter4j.conf.ConfigurationBuilder;
 
-public class SparkStreamingTwitter implements Serializable{
+public class SparkStreamingTwitter implements Serializable {
 
 	/**
 	 * 
 	 */
 	private static final long serialVersionUID = 1L;
-	SparkConfigInit sparkConfig = new SparkConfigInit();
+	private static SparkConfigInit sparkConfig = new SparkConfigInit();
+	private static SparkConf sparkConf = new SparkConf().setAppName("Spark Sesssion").setMaster("local[2]")
+			.set("spark.serializer", KryoSerializer.class.getName());
 
-	public <U> void startTwitterStreaming(String consumerKey, String consumerSecret, String accessToken,
+	public void startTwitterStreaming(String consumerKey, String consumerSecret, String accessToken,
 			String accessTokenSecret, String[] filters) throws InterruptedException {
 
-		// Set the system properties so that Twitter4j library used by Twitter
-		// stream
-		// can use them to generate OAuth credentials
-		/*System.setProperty("twitter4j.oauth.consumerKey", consumerKey);
-		System.setProperty("twitter4j.oauth.consumerSecret", consumerSecret);
-		System.setProperty("twitter4j.oauth.accessToken", accessToken);
-		System.setProperty("twitter4j.oauth.accessTokenSecret", accessTokenSecret);*/
-		
 		ConfigurationBuilder cb = new ConfigurationBuilder();
 		cb.setDebugEnabled(true);
-		cb.setOAuthConsumerKey(consumerKey); // Change the Key value, Token etc. with your actual token value
+		cb.setOAuthConsumerKey(consumerKey); // Change the Key value, Token etc.
+												// with your actual token value
 		cb.setOAuthConsumerSecret(consumerSecret);
 		cb.setOAuthAccessToken(accessToken);
 		cb.setOAuthAccessTokenSecret(accessTokenSecret);
-		
-		
+
 		Authorization auth = AuthorizationFactory.getInstance(cb.build());
 
-		
-		SparkConf sparkConf = new SparkConf().setAppName("Tweets Android").setMaster("local[2]").set("spark.serializer",KryoSerializer.class.getName());
-		
 		JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, new Duration(10000));
-		JavaReceiverInputDStream<Status> stream = TwitterUtils.createStream(jssc, auth,filters);
+		JavaReceiverInputDStream<Status> stream = TwitterUtils.createStream(jssc, auth, filters);
+
+		JavaDStream<String> words = stream.flatMap(new FlatMapFunction<Status, String>() {
+			@Override
+			public Iterator<String> call(Status s) {
+				return Arrays.asList(s.getText().split(" ")).iterator();
+			}
+		});
+
+		JavaDStream<String> hashTags = words.filter(new Function<String, Boolean>() {
+			@Override
+			public Boolean call(String word) throws Exception {
+				return word.startsWith("#");
+			}
+		});
+
+		JavaPairDStream<String, Integer> hashTagCount = hashTags.mapToPair(new PairFunction<String, String, Integer>() {
+			@Override
+			public Tuple2<String, Integer> call(String s) {
+				// leave out the # character
+				return new Tuple2<String, Integer>(s.substring(1), 1);
+			}
+		});
+
+		JavaPairDStream<String, Integer> hashTagTotals = hashTagCount
+				.reduceByKeyAndWindow(new Function2<Integer, Integer, Integer>() {
+					@Override
+					public Integer call(Integer a, Integer b) {
+						return a + b;
+					}
+				}, new Duration(10000));
 		
 		
-		stream.print();
 		
-		    	    
-	    jssc.start();
-	    jssc.awaitTermination();
+
+		hashTagTotals.print();
+
+		jssc.start();
+		jssc.awaitTermination();
 
 	}
 
